@@ -19,7 +19,7 @@ def every_words(seconds):
 
 class Conductor:
     def __init__(self, store, transport, wrapper, transport_errors=(OSError,), usage=None, on_usage=None,
-                 summary=None, on_run_end=None):
+                 summary=None, on_run_end=None, blocked_on="the person you work for"):
         self.store = store
         self.transport = transport
         self.transport_errors = transport_errors
@@ -30,6 +30,8 @@ class Conductor:
         self.on_usage = on_usage
         self.summary = summary
         self.on_run_end = on_run_end
+        # Who a wake says the agent may be blocked on ("end with NO MORE WORK if ... blocked on <them>").
+        self.blocked_on = blocked_on
         # The words added to a held message (delivery.wrap): whoever runs the conductor chooses them.
         self.wrapper = wrapper
 
@@ -167,7 +169,7 @@ class Conductor:
             if reason:
                 self.keep_going_off(sid, reason)
                 continue
-            state, text, why = keepgoing.fire(state)
+            state, text, why = keepgoing.fire(state, self.blocked_on)
             if text is None:
                 self.store.set_field(sid, "keep_going", None)
                 self.store.append(sid, {"kind": "keep_going", "text": why})
