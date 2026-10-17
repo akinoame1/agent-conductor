@@ -35,6 +35,19 @@ class HostTest(unittest.TestCase):
     def texts(self):
         return [e["text"] for e in self.s.events() if e["kind"] == "text"]
 
+    def test_an_ask_is_recorded_shown_to_the_agent_and_closed_by_the_quoting_reply(self):
+        # akinoame1/app_infra#489: what the agent needs from its person, per session.
+        self.s.submit("build it\nASK: add the token")              # the fake answers "heard: " + this
+        self.wait(lambda: self.s.state() == "idle" and self.s.asks())
+        a = self.s.asks()[0]
+        self.assertEqual(("a1", "add the token"), (a["id"], a["text"]))
+        self.s.submit("status?")
+        self.wait(lambda: any("RESOLVED: a1" in t for t in self.texts()))   # the note went with it, echoed back
+        self.wait(lambda: self.s.state() == "idle")
+        self.s.submit("it is in the vault", reply_to=a["seq"])
+        self.assertEqual([], self.s.asks())
+        self.assertTrue(self.s.dismiss_ask("a1") is False)
+
     def test_a_message_is_answered_and_the_session_settles(self):
         self.s.submit("hello")
         self.wait(lambda: "heard: hello" in self.texts() and self.s.state() == "idle")
