@@ -13,6 +13,34 @@ class FakeSession:
     def stop_after(self, qid, on=True): self.stops.append((qid, on)); return True
     def resume(self): self.resumed += 1
     def keep_going(self, on, interval_s=None, cap=None): self.kg = (on, interval_s, cap); return {"cap": 12} if on else None
+    def events(self, after=0): return [e for e in CHAT if e["seq"] > after]
+
+
+CHAT = [
+    {"seq": 1, "kind": "sent", "text": "fix the flicker"},
+    {"seq": 2, "kind": "text", "text": "Understood. Acting now."},
+    {"seq": 3, "kind": "tool_call", "text": "bash ls"},
+    {"seq": 4, "kind": "text", "text": "Fixed (#432).\n\nDetails follow."},
+    {"seq": 5, "kind": "sent", "text": "and the queue?\nsecond line"},
+    {"seq": 6, "kind": "text", "text": "Queue panel shipped."},
+]
+
+
+class ViewsTest(unittest.TestCase):
+    """/catchup and /mine (app_infra#469): the phone's concise view and my-message jumps, in a terminal."""
+
+    def test_catchup_prints_each_of_your_messages_with_the_last_answer_and_then_only_whats_new(self):
+        s, marks = FakeSession(), {}
+        self.assertEqual("you: fix the flicker\n  1 tool call · #432\nagent: Fixed (#432). …\n\n"
+                         "you: and the queue?\nagent: Queue panel shipped.", handle(s, "/catchup", marks))
+        self.assertEqual("nothing new since the last /catchup", handle(s, "/catchup", marks))
+
+    def test_mine_lists_your_messages_and_opens_one_with_its_answer(self):
+        s = FakeSession()
+        self.assertEqual("2 of yours\n1. fix the flicker\n2. and the queue?", handle(s, "/mine"))
+        self.assertEqual("you: and the queue?\nsecond line\nagent: Queue panel shipped.\n(1 before, 0 after)",
+                         handle(s, "/mine 2"))
+        self.assertEqual("which one? /mine N, with N from /mine", handle(s, "/mine 3"))
 
 
 class TuiTest(unittest.TestCase):

@@ -3,7 +3,7 @@
     python -m conductor.tui --harness claude --cwd ~/work/project [--wrapper "First line: what you will do."]
 
 Type a message to send it (held while the agent works). Commands: /queue, /stop-after N, /continue,
-/keep-going on [minutes] | off, /help, /quit. A session lives in a folder (--dir, default
+/keep-going on [minutes] | off, /catchup, /mine [N], /help, /quit. A session lives in a folder (--dir, default
 <cwd>/.conductor/session) and survives restarts.
 """
 import argparse
@@ -18,6 +18,8 @@ HELP = ("/queue                 what is held, in delivery order\n"
         "/continue              go on after a stop\n"
         "/keep-going on [min]   wake a stalled long task every [min] minutes (default 10)\n"
         "/keep-going off\n"
+        "/catchup               each of your messages since the last /catchup, with the agent's last answer\n"
+        "/mine [N]              your messages; N opens one with its answer\n"
         "/quit")
 
 
@@ -39,8 +41,52 @@ def render(event):
     return None
 
 
-def handle(session, line):
-    """What a typed line does; returns what to print."""
+def _first_line(text):
+    return (text or "").strip().splitlines()[0] if (text or "").strip() else ""
+
+
+def catchup(session, marks):
+    """Each pair since the last /catchup: your message's first line, the digest, the answer's first paragraph."""
+    from conductor import views
+    events = session.events(0)
+    got = views.catch_up(events, marks.get("caught", 0))
+    if events:
+        marks["caught"] = events[-1]["seq"]
+    if not got:
+        return "nothing new since the last /catchup"
+    blocks = []
+    for p in got:
+        lines = ["you: " + _first_line(p.mine.get("text"))]
+        d = views.digest(p)
+        if d:
+            lines.append("  " + d)
+        if p.answer is None:
+            lines.append("agent: (no answer yet)")
+        else:
+            lead, more = views.first_paragraph(p.answer.get("text"))
+            lines.append("agent: " + lead + (" …" if more else ""))
+        blocks.append("\n".join(lines))
+    return "\n\n".join(blocks)
+
+
+def mine(session, arg):
+    """Your messages by number, or one of them whole with the turn's last answer and how many are around it."""
+    from conductor import views
+    got = views.pairs(session.events(0))
+    if not arg:
+        return "%d of yours\n" % len(got) + "\n".join("%d. %s" % (i + 1, _first_line(p.mine.get("text")))
+                                                     for i, p in enumerate(got))
+    if not arg.isdigit() or not 1 <= int(arg) <= len(got):
+        return "which one? /mine N, with N from /mine"
+    p = got[int(arg) - 1]
+    seq = p.mine["seq"]
+    before, after = views.step_counts([q.mine["seq"] for q in got], seq, seq)
+    answer = (p.answer.get("text") or "").strip() if p.answer else "(no answer yet)"
+    return "you: %s\nagent: %s\n(%d before, %d after)" % ((p.mine.get("text") or "").strip(), answer, before, after)
+
+
+def handle(session, line, marks=None):
+    """What a typed line does; returns what to print. `marks` keeps what /catchup has shown."""
     line = line.strip()
     if not line:
         return ""
@@ -74,6 +120,10 @@ def handle(session, line):
             state = session.keep_going(True, interval_s=interval)
             return "keep going on" + (" (at most %d wakes)" % state["cap"] if state else "")
         return "/keep-going on [minutes] | off"
+    if cmd == "/catchup":
+        return catchup(session, marks if marks is not None else {})
+    if cmd == "/mine":
+        return mine(session, arg)
     return "unknown command; /help"
 
 
@@ -96,6 +146,7 @@ def main(argv=None):
     seen = [e["seq"] for e in session.events()][-1:] or [0]
     last = {"seq": seen[0]}
     stop = threading.Event()
+    marks = {}
 
     def pump():
         while not stop.is_set():
@@ -113,7 +164,7 @@ def main(argv=None):
         for line in sys.stdin:
             if line.strip() == "/quit":
                 break
-            out = handle(session, line)
+            out = handle(session, line, marks)
             if out:
                 print(out)
     except KeyboardInterrupt:
