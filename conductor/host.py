@@ -115,6 +115,24 @@ class FileStore:
         return out
 
     # queue
+    # asks: what the agent needs from its person (akinoame1/app_infra#489)
+    def asks(self, sid=None):
+        try:
+            with open(self._path("asks.json")) as fh:
+                got = json.load(fh)
+            return got if isinstance(got, list) else []
+        except (OSError, ValueError):
+            return []
+
+    def update_asks(self, sid, change):
+        """Read, change and replace, under an exclusive lock: two clients on one folder must not lose an ask."""
+        with open(self._path(".asks.lock"), "a") as lock:
+            if fcntl:
+                fcntl.flock(lock, fcntl.LOCK_EX)
+            book = change(self.asks())
+            self._write_json("asks.json", book)
+            return book
+
     def queue_engine(self, sid=None):
         return Queue(FileQueueStore(self._path("followups.jsonl")))
 
@@ -271,6 +289,21 @@ class Session:
 
     def queue(self):
         return self.store.queue_engine().view()
+
+    def asks(self):
+        """The agent's open asks, oldest first."""
+        from conductor import asks as rules
+        return rules.open_(self.store.asks())
+
+    def dismiss_ask(self, aid):
+        from conductor import asks as rules
+        done = []
+        def change(book):
+            book, ok = rules.dismiss(book, aid, _now_iso())
+            done.append(ok)
+            return book
+        self.store.update_asks(self.SID, change)
+        return done[0]
 
     def stop_after(self, qid, on=True):
         with self.lock:
