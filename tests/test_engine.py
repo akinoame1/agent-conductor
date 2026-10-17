@@ -157,6 +157,11 @@ class EngineKeepGoingTest(unittest.TestCase):
         self.assertTrue(self.tick())
         self.assertEqual(["X"], [q["text"] for q in self.store.q.items()])
 
+    def test_the_wake_says_who_it_may_be_blocked_on(self):
+        c = Conductor(self.store, self.transport, wrapper="W", blocked_on="the reviewer")
+        c.keep_going_tick([dict(self.store.rec)], now=10, running=lambda sid: True, harness_for=lambda rec: FakeHarness())
+        self.assertIn("blocked on the reviewer", self.transport.sent[0]["message"])
+
     def test_a_stopped_session_or_a_gate_disarms_with_the_reason(self):
         self.assertFalse(self.tick(running=False))
         self.assertIsNone(self.store.rec["keep_going"])
