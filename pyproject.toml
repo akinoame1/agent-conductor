@@ -1,0 +1,15 @@
+[project]
+name = "agent-conductor"
+version = "0.1.0"
+description = "Manage an AI coding agent's work so it cooperates: a visible queue, delivery instructions, keep-going wakes, harness adapters."
+readme = "README.md"
+license = { text = "MIT" }
+requires-python = ">=3.10"
+dependencies = []
+
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = ["conductor"]
