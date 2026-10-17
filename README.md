@@ -41,10 +41,25 @@ c.keep_going_tick(records, now, running=lambda sid: True, harness_for=lambda rec
 The ports are listed at the top of `conductor/engine.py`; `tests/test_engine.py` runs the engine over in-memory
 ones and is the shortest working example. The phone app it grew up in is one client; a terminal client is next.
 
+## Try it in a terminal
+
+```sh
+python -m conductor.tui --harness claude --cwd ~/work/project --wrapper "First line: what you will do."
+```
+
+Type to send (held while the agent works). `/queue`, `/stop-after N`, `/continue`, `/keep-going on 10`,
+`/keep-going off`, `/quit`. The session lives in `<cwd>/.conductor/session` and survives restarts.
+`--command` runs a different executable for the harness.
+
+## A host of your own
+
+`conductor/host.py` is a complete reference host — a session in a folder (`FileStore`), the harness as a
+subprocess (`ProcessTransport`), and `Session` tying them to the engine — and the terminal client is ~150 lines
+on top of it. Swap the store for a database or the transport for a socket, and you have a server.
+
 ## Status
 
-0.1: the library, extracted from a working server with its tests. A reference host (files and a subprocess
-transport) and a terminal client are planned.
+0.2: the library, a reference host and a terminal client, with tests (the host runs against a fake pi).
 
 ## Contributing
 
