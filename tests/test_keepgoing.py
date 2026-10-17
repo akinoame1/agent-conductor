@@ -81,5 +81,39 @@ class LogicTest(unittest.TestCase):
 
 
 
+class WaitingTest(unittest.TestCase):
+    """Waiting on CI or a background job is the case keep-going exists for, so it must not stop it. The answer
+    below disarmed it in the phone host this library came from (archived there as
+    docs/evidence/2026-10-17_2109_foxchat-event-1228-no-more-work-while-waiting.jsonl, akinoame1/app_infra#487)."""
+    FOXCHAT = ("3. The measurement continues on model 4 of 9.\n\nNO MORE WORK: waiting on CI for PR #458 and the "
+               "background measurement; both notify when done, and the next steps continue from there.")
+
+    def run_(self, text, wake=False, tools=0):
+        return {"tool_calls": tools, "wall_s": 10.0, "wake": wake, "text": text}
+
+    def test_a_no_more_work_that_is_waiting_keeps_it_on(self):
+        state, said = kg.after_run(kg.arm(), self.run_(self.FOXCHAT), now=1000)
+        self.assertIsNotNone(state)
+        self.assertEqual(1600, state["next_at"])
+        self.assertIn("keep going waits: waiting on CI for PR #458", said)
+
+    def test_a_waiting_line_keeps_it_on_and_is_not_a_wake_without_progress(self):
+        state = kg.arm()
+        for n in range(4):
+            state, said = kg.after_run(state, self.run_("Still running.\nWAITING: CI for #458", wake=True), now=n)
+            self.assertIsNotNone(state)
+
+    def test_done_and_waiting_on_the_person_still_stop(self):
+        self.assertIsNone(kg.after_run(kg.arm(), self.run_("NO MORE WORK: all merged"), now=1)[0])
+        self.assertIsNone(kg.after_run(kg.arm(), self.run_("NO MORE WORK: waiting for Dana to review"), now=1,
+                                       person="Dana")[0])
+        self.assertIsNone(kg.after_run(kg.arm(), self.run_("NO MORE WORK: waiting on you to choose"), now=1)[0])
+
+    def test_the_wake_says_how_to_wait(self):
+        _, text, _ = kg.fire(kg.arm(), blocked_on="the reviewer")
+        self.assertIn("WAITING: <what>", text)
+        self.assertIn("not the reviewer", text)
+
+
 if __name__ == "__main__":
     unittest.main()
