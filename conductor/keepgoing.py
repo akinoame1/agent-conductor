@@ -17,6 +17,25 @@ NOT_UNTIL_SETTLED = 1e18
 # At the start of a line only: the wake message quotes the phrase, and an echo of it must not disarm.
 DONE = re.compile(r"^\s*NO MORE WORK\b:?\s*(.*)$", re.M)
 ARM = re.compile(r"^\s*KEEP GOING\s*$", re.M)
+# Waiting on something that is not the person (CI, a build, a background job): the case keep-going exists
+# for, so it never disarms. Models also write it as a NO MORE WORK whose reason is waiting; that counts as
+# waiting unless the reason names the person (or "you"), who is then what it waits on.
+WAITING = re.compile(r"^\s*WAITING\b:?\s*(.*)$", re.M)
+_WAIT_WHY = re.compile(r"^\s*wait(ing)?\b", re.I)
+
+
+def _waiting_for(text, done, person=None):
+    """What the agent says it waits on, or None. Do not let a waiting NO MORE WORK disarm: "NO MORE WORK:
+    waiting on CI for PR #458 …" did, and the agent was left to a wake that never came (akinoame1/app_infra#487)."""
+    w = WAITING.search(text)
+    if w:
+        return w.group(1).strip() or "something"
+    if done:
+        why = done.group(1).strip()
+        names = r"\b(you|your%s)\b" % ("|" + re.escape(person) if person else "")
+        if _WAIT_WHY.match(why) and not re.search(names, why, re.I):
+            return why
+    return None
 
 
 def arm(interval_s=INTERVAL_S, cap=CAP, now=0):
@@ -39,7 +58,7 @@ def read(raw):
     return state
 
 
-def after_run(state, run, now):
+def after_run(state, run, now, person=None):
     """A run settled. `run`: tool_calls, wall_s, wake (it was a wake), text (its last answer).
     Returns (new state or None, a line for the chat or None)."""
     text = run.get("text") or ""
@@ -49,9 +68,15 @@ def after_run(state, run, now):
             return arm(now=now), "keep going armed by the session"
         return None, None
     done = DONE.search(text)
-    if done:
+    waiting = _waiting_for(text, done, person)
+    if done and waiting is None:
         why = done.group(1).strip() or "no reason given"
         return None, "keep going stopped: the session said no more work (%s)" % why
+    if waiting is not None:
+        # Waiting is not idling: a check on a build often needs no tool call. The cap still bounds the cost.
+        state["idle_wakes"] = 0
+        state["next_at"] = now + state["interval_s"]
+        return state, "keep going waits: %s · next wake in %d min" % (waiting, max(1, round(state["interval_s"] / 60)))
     if run.get("wake"):
         state["idle_wakes"] = 0 if run.get("tool_calls", 0) > 0 else state["idle_wakes"] + 1
         if state["idle_wakes"] >= NO_PROGRESS:
@@ -74,9 +99,11 @@ def fire(state, blocked_on="the person you work for"):
     if state["count"] >= state["cap"]:
         return None, None, "keep going stopped: all %d wakes used" % state["cap"]
     state["count"] += 1
-    text = ("[wake %d/%d] If the task is unfinished, continue from where you stopped. If it is finished, "
-            "or you are blocked on %s, end your answer with a line `NO MORE WORK: <why>`."
-            % (state["count"], state["cap"], blocked_on))
+    text = ("[wake %d/%d] If the task is unfinished, continue from where you stopped. If you are waiting on "
+            "something that is not %s (CI, a build, a background job), end your answer with a line "
+            "`WAITING: <what>` and you will be woken again to check. If it is finished, or you are blocked on "
+            "%s, end your answer with a line `NO MORE WORK: <why>`."
+            % (state["count"], state["cap"], blocked_on, blocked_on))
     # Not due again until this wake's own run settles and after_run sets it.
     state["next_at"] = NOT_UNTIL_SETTLED
     return state, text, None
