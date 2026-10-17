@@ -14,6 +14,9 @@ class FakeSession:
     def resume(self): self.resumed += 1
     def keep_going(self, on, interval_s=None, cap=None): self.kg = (on, interval_s, cap); return {"cap": 12} if on else None
     def events(self, after=0): return [e for e in CHAT if e["seq"] > after]
+    def asks(self): return [{"id": "a1", "source": "ask", "text": "add the token", "seq": 4}] if not self.dismissed else []
+    dismissed = False
+    def dismiss_ask(self, aid): self.dismissed = aid == "a1"; return self.dismissed
 
 
 CHAT = [
@@ -41,6 +44,21 @@ class ViewsTest(unittest.TestCase):
         self.assertEqual("you: and the queue?\nsecond line\nagent: Queue panel shipped.\n(1 before, 0 after)",
                          handle(s, "/mine 2"))
         self.assertEqual("which one? /mine N, with N from /mine", handle(s, "/mine 3"))
+
+
+class AsksTuiTest(unittest.TestCase):
+    """/asks, /reply and /dismiss (akinoame1/app_infra#489)."""
+
+    def test_asks_list_and_reply_quotes_the_message_and_dismiss_closes(self):
+        s = FakeSession()
+        s.replies = []
+        s.submit = lambda text, reply_to=None: s.replies.append((text, reply_to)) or "sent"
+        self.assertEqual("a1 · needs you · add the token", handle(s, "/asks"))
+        self.assertEqual("", handle(s, "/reply a1 it is in the vault"))
+        self.assertEqual([("it is in the vault", 4)], s.replies)
+        self.assertEqual("which one? /reply aN <text>, with aN from /asks", handle(s, "/reply a9 x"))
+        self.assertEqual("a1 dismissed", handle(s, "/dismiss a1"))
+        self.assertEqual("nothing asked", handle(s, "/asks"))
 
 
 class TuiTest(unittest.TestCase):

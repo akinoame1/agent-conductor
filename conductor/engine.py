@@ -4,12 +4,14 @@ policy (spend caps, naming, pricing).
 
 Ports the engine uses on its `store` (docs/conductor.md): get, set_state, set_field, append (returns the event with
 its seq), held, hold_followup, queue_engine (a conductor.queue.Queue), queue_paused, begin_run, note_delivered,
-flush_followup, mark_run_wake, load_run, save_run, clear_run, start_run, mark_read; and on its `transport`: send(sid, payload), raising one of [transport_errors] when the harness is
+flush_followup, mark_run_wake, load_run, save_run, clear_run, start_run, mark_read, and optionally asks and
+update_asks (akinoame1/app_infra#489; a store without them keeps no asks); and on its `transport`: send(sid, payload), raising one of [transport_errors] when the harness is
 not there. The engine takes no locks: a host that is shared holds its own around each call.
 """
 import secrets
+from datetime import datetime, timezone
 
-from conductor import keepgoing, runs
+from conductor import asks, keepgoing, runs
 from conductor.delivery import wrap
 
 
@@ -17,9 +19,13 @@ def every_words(seconds):
     return "%d min" % (seconds // 60) if seconds >= 60 else "%d s" % seconds
 
 
+def _now_iso():
+    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
 class Conductor:
     def __init__(self, store, transport, wrapper, transport_errors=(OSError,), usage=None, on_usage=None,
-                 summary=None, on_run_end=None, blocked_on="the person you work for"):
+                 summary=None, on_run_end=None, blocked_on="the person you work for", person=None):
         self.store = store
         self.transport = transport
         self.transport_errors = transport_errors
@@ -32,6 +38,8 @@ class Conductor:
         self.on_run_end = on_run_end
         # Who a wake says the agent may be blocked on ("end with NO MORE WORK if ... blocked on <them>").
         self.blocked_on = blocked_on
+        # The person's name, when known: a NO MORE WORK naming them raises an ask (asks.raised); "you" always does.
+        self.person = person
         # The words added to a held message (delivery.wrap): whoever runs the conductor chooses them.
         self.wrapper = wrapper
 
@@ -40,6 +48,10 @@ class Conductor:
         """The person's message: straight in when the session is idle, held while it works.
         [message] is his words, kept on the event; [wire_text] what the model gets (reply quote, files note).
         Returns "sent" or "queued"."""
+        # Asks (akinoame1/app_infra#489): what this message answers closes; the agent is told what is still open.
+        has_asks = hasattr(self.store, "update_asks")
+        if has_asks:
+            wire_text += asks.note(asks.after_person(self.store.asks(sid), None, answered, _now_iso()))
         rec = self.store.get(sid) or {}
         # Idle with messages still held (a refusal, a flush that failed): drain one first. Otherwise this send
         # would itself be held, nothing would start a run, and the queue would deadlock.
@@ -56,6 +68,8 @@ class Conductor:
         if rec.get("state") == "working":
             qid = secrets.token_hex(4)
             held = self.store.append(sid, dict(event, kind="queued", qid=qid))
+            if has_asks:
+                self.store.update_asks(sid, lambda book: asks.after_person(book, held["seq"], answered, _now_iso()))
             wrapped = wrap(wire_text, self.wrapper)
             self.store.hold_followup(sid, held["seq"], harness.prompt(wrapped, images), qid=qid, text=message,
                                      images=saved_images, in_reply_to=answered, delivered_as=wrapped,
@@ -64,6 +78,8 @@ class Conductor:
         self.store.begin_run(sid)
         self.store.set_state(sid, "working")
         sent = self.store.append(sid, dict(event, kind="sent"))
+        if has_asks:
+            self.store.update_asks(sid, lambda book: asks.after_person(book, sent["seq"], answered, _now_iso()))
         self.store.note_delivered(sid, sent["seq"])
         self.transport.send(sid, harness.prompt(wire_text, images))
         return "sent"
@@ -202,8 +218,14 @@ class Conductor:
                 self.store.set_field(sid, key, value)
                 rec[key] = value
         for event in fold.events:
-            self.store.append(sid, event)
+            written = self.store.append(sid, event)
+            if run is not None and event.get("kind") == "text" and event.get("role") == "assistant":
+                run["text_seq"] = written["seq"]            # an ask points at the answer that raised it
+                self.store.save_run(sid, run)
         if fold.settled:
+            if run is not None and run.get("text_seq") and hasattr(self.store, "update_asks"):
+                self.store.update_asks(sid, lambda book: asks.after_answer(
+                    book, run.get("text") or "", run["text_seq"], _now_iso(), person=self.person))
             if run is not None:
                 # The run's summary is a line of its own, and only for a run that did
                 # something.

@@ -3,7 +3,7 @@
     python -m conductor.tui --harness claude --cwd ~/work/project [--wrapper "First line: what you will do."]
 
 Type a message to send it (held while the agent works). Commands: /queue, /stop-after N, /continue,
-/keep-going on [minutes] | off, /catchup, /mine [N], /help, /quit. A session lives in a folder (--dir, default
+/keep-going on [minutes] | off, /catchup, /mine [N], /asks, /reply aN <text>, /dismiss aN, /help, /quit. A session lives in a folder (--dir, default
 <cwd>/.conductor/session) and survives restarts.
 """
 import argparse
@@ -20,6 +20,9 @@ HELP = ("/queue                 what is held, in delivery order\n"
         "/keep-going off\n"
         "/catchup               each of your messages since the last /catchup, with the agent's last answer\n"
         "/mine [N]              your messages; N opens one with its answer\n"
+        "/asks                  what the agent needs from you\n"
+        "/reply aN <text>       answer ask aN (quotes its message, which closes it)\n"
+        "/dismiss aN            close ask aN without answering\n"
         "/quit")
 
 
@@ -124,6 +127,18 @@ def handle(session, line, marks=None):
         return catchup(session, marks if marks is not None else {})
     if cmd == "/mine":
         return mine(session, arg)
+    if cmd == "/asks":
+        words = {"blocked": "blocked on you", "question": "question"}
+        return "\n".join("%s · %s · %s" % (a["id"], words.get(a["source"], "needs you"), a["text"])
+                         for a in session.asks()) or "nothing asked"
+    if cmd == "/reply":
+        aid, _, text = arg.partition(" ")
+        ask = next((a for a in session.asks() if a["id"] == aid), None)
+        if ask is None or not text.strip():
+            return "which one? /reply aN <text>, with aN from /asks"
+        return "(queued — it delivers after this run)" if session.submit(text.strip(), reply_to=ask["seq"]) == "queued" else ""
+    if cmd == "/dismiss":
+        return "%s dismissed" % arg if session.dismiss_ask(arg) else "which one? /dismiss aN, with aN from /asks"
     return "unknown command; /help"
 
 

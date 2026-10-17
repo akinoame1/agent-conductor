@@ -15,6 +15,9 @@ handles what goes wrong when you actually work with one:
   waiting on CI or a background job writes `WAITING: <what>` and is woken again to check; waiting never disarms.
 - **Harness adapters.** What each line of a harness's output means: answers, tool calls, when a run has really
   ended, refusals. pi (RPC mode) and Claude Code (stream-json) are included.
+- **Asks.** What the agent needs from you, kept per session like the queue in the other direction. Raised by an
+  `ASK: <what>` line, a stop that names you, or a closing question; closed by your reply quoting it, the agent's
+  `RESOLVED: a1`, or a dismiss. While asks are open, each message you send lists them for the agent.
 - **Catching up.** `conductor.views` reads a long session for you: each of your messages paired with the turn's
   *last* answer (the first is usually the acknowledgement), its first paragraph and a one-line digest (tool
   calls, issue numbers, versions), what is new since you last looked, and counts and jumps between your own
@@ -54,7 +57,7 @@ python -m conductor.tui --harness claude --cwd ~/work/project --wrapper "First l
 
 Type to send (held while the agent works). `/queue`, `/stop-after N`, `/continue`, `/keep-going on 10`,
 `/keep-going off`, `/catchup` (your messages since the last one, each with the agent's last answer), `/mine [N]`
-(your messages; N opens one), `/quit`. The session lives in `<cwd>/.conductor/session` and survives restarts.
+(your messages; N opens one), `/asks`, `/reply aN <text>`, `/dismiss aN`, `/quit`. The session lives in `<cwd>/.conductor/session` and survives restarts.
 `--command` runs a different executable for the harness.
 
 ## A host of your own
