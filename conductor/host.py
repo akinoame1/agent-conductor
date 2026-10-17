@@ -10,6 +10,10 @@ it -- and the shortest complete example of the ports in engine.py. A session fol
 """
 import collections
 import json
+try:
+    import fcntl                       # POSIX; elsewhere one writer per folder is assumed
+except ImportError:                    # pragma: no cover
+    fcntl = None
 import os
 import subprocess
 import threading
@@ -31,7 +35,7 @@ class FileStore:
     def __init__(self, root):
         self.root = root
         os.makedirs(root, exist_ok=True)
-        self._seq = sum(1 for _ in self._lines("events.jsonl"))
+        self._known = (0, 0)            # (bytes of events.jsonl counted, lines in them): see append
         self.flush = lambda sid: False      # set by the Session: the engine's drain under its lock
 
     def _path(self, name):
@@ -67,12 +71,36 @@ class FileStore:
         self.set_field(sid, "state", state)
 
     # events
+    def _lines_in(self, fh):
+        """Lines in the open log now, counting only the bytes added since this store last looked."""
+        size = os.fstat(fh.fileno()).st_size
+        known, lines = self._known if self._known[0] <= size else (0, 0)
+        if size > known:
+            with open(self._path("events.jsonl"), "rb") as rd:
+                rd.seek(known)
+                for chunk in iter(lambda: rd.read(1 << 16), b""):
+                    lines += chunk.count(b"\n")
+        self._known = (size, lines)
+        return lines
+
     def append(self, sid, event):
-        self._seq += 1
-        e = dict(event, seq=self._seq)
+        """Write one event as the log's next line; its seq is that line's number, counted from the file under an
+        exclusive lock, never from a counter in this process. Two clients on one folder each kept a counter and
+        handed out the same number: the phone host this library came from got two events with seq 84 and its
+        chat crashed (akinoame1/app_infra#470, #481). Do not move the count outside the lock."""
+        e = dict(event)
         e.setdefault("at", _now_iso())
         with open(self._path("events.jsonl"), "a") as fh:
-            fh.write(json.dumps(e) + "\n")
+            if fcntl:
+                fcntl.flock(fh, fcntl.LOCK_EX)
+            try:
+                e["seq"] = self._lines_in(fh) + 1
+                fh.write(json.dumps(e) + "\n")
+                fh.flush()
+                self._known = (os.fstat(fh.fileno()).st_size, e["seq"])
+            finally:
+                if fcntl:
+                    fcntl.flock(fh, fcntl.LOCK_UN)
         return e
 
     def events_since(self, sid=None, after=0):
