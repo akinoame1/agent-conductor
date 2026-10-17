@@ -126,7 +126,7 @@ class Conductor:
             return
         state, said = keepgoing.after_run(rec.get("keep_going"), {
             "tool_calls": run.get("tool_calls", 0), "wall_s": now - run.get("start", now),
-            "wake": bool(run.get("wake")), "text": run.get("text")}, now=now)
+            "wake": bool(run.get("wake")), "text": run.get("text")}, now=now, person=self.blocked_on)
         self.store.set_field(sid, "keep_going", state)
         rec["keep_going"] = state
         if said:

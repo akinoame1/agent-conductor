@@ -11,7 +11,8 @@ handles what goes wrong when you actually work with one:
 - **Delivery instructions.** What is added to a message on its way: your own wrapper (reply rules, say), the
   quote of the message you replied to, a note of attached files and where they are, the reminder.
 - **Keep-going.** Wakes for a long task the agent stopped mid-way: on an interval or right after a big run, and
-  disarmed by a `NO MORE WORK: <why>` line, two wakes in a row with no progress, a cap, or the host.
+  disarmed by a `NO MORE WORK: <why>` line, two wakes in a row with no progress, a cap, or the host. An agent
+  waiting on CI or a background job writes `WAITING: <what>` and is woken again to check; waiting never disarms.
 - **Harness adapters.** What each line of a harness's output means: answers, tool calls, when a run has really
   ended, refusals. pi (RPC mode) and Claude Code (stream-json) are included.
 - **Catching up.** `conductor.views` reads a long session for you: each of your messages paired with the turn's
