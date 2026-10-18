@@ -14,27 +14,33 @@ from collections import namedtuple
 MINE = ("sent", "delivered")     # "queued" is only the echo of a held message; its delivery is the message
 ANSWER = ("text",)
 
-Pair = namedtuple("Pair", "mine answer tool_calls")
+# first: the turn's first answer when it is not the last -- often the diagnosis, the agent's reading of the problem
+# (akinoame1/app_infra#519); None when the turn answered once.
+Pair = namedtuple("Pair", "mine answer tool_calls first")
 
 
 def pairs(events):
-    """Each of your messages with the turn's last answer (None while there is none) and its tool calls."""
-    out, mine, answer, tools = [], None, None, 0
+    """Each of your messages with the turn's last answer (None while there is none), its tool calls, and the turn's
+    first answer when that is a different one."""
+    out, mine, answer, first, tools = [], None, None, None, 0
+
+    def close():
+        if mine is not None:
+            out.append(Pair(mine, answer, tools, first if first is not answer else None))
+
     for e in events:
         kind = e.get("kind")
         if kind in MINE:
-            if mine is not None:
-                out.append(Pair(mine, answer, tools))
-            mine, answer, tools = e, None, 0
+            close()
+            mine, answer, first, tools = e, None, None, 0
         elif mine is not None:
             if kind in ANSWER:
+                first = first or e
                 answer = e
             elif kind == "tool_call":
                 tools += 1
-    if mine is not None:
-        out.append(Pair(mine, answer, tools))
+    close()
     return out
-
 
 def first_paragraph(text):
     """(the text's first paragraph, whether more follows it)."""

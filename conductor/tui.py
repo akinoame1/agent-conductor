@@ -60,6 +60,9 @@ def catchup(session, marks):
     blocks = []
     for p in got:
         lines = ["you: " + _first_line(p.mine.get("text"))]
+        if p.first is not None:
+            lead, more = views.first_paragraph(p.first.get("text"))
+            lines.append("agent first: " + lead + (" …" if more else ""))
         d = views.digest(p)
         if d:
             lines.append("  " + d)
