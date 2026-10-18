@@ -34,7 +34,7 @@ class ViewsTest(unittest.TestCase):
 
     def test_catchup_prints_each_of_your_messages_with_the_last_answer_and_then_only_whats_new(self):
         s, marks = FakeSession(), {}
-        self.assertEqual("you: fix the flicker\n  1 tool call · #432\nagent: Fixed (#432). …\n\n"
+        self.assertEqual("you: fix the flicker\nagent first: Understood. Acting now.\n  1 tool call · #432\nagent: Fixed (#432). …\n\n"
                          "you: and the queue?\nagent: Queue panel shipped.", handle(s, "/catchup", marks))
         self.assertEqual("nothing new since the last /catchup", handle(s, "/catchup", marks))
 

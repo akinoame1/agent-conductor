@@ -29,6 +29,8 @@ class PairsTest(unittest.TestCase):
         self.assertEqual([1, 9, 11], [p.mine["seq"] for p in pairs])
         self.assertEqual([6, 10, None], [p.answer["seq"] if p.answer else None for p in pairs])
         self.assertEqual(2, pairs[0].tool_calls)
+        # The first answer too, often the diagnosis (akinoame1/app_infra#519); none when it is also the last.
+        self.assertEqual([2, None, None], [p.first["seq"] if p.first else None for p in pairs])
 
     def test_a_queued_echo_is_not_a_message_of_yours_its_delivery_is(self):
         self.assertNotIn(8, [p.mine["seq"] for p in views.pairs(CHAT)])
